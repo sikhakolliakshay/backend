@@ -10,6 +10,7 @@ const {
 } = require('@lykmapipo/express-rest-actions');
 const { getString } = require('@lykmapipo/env');
 const _ = require('lodash');
+const bcrypt = require('bcrypt');
 // const { uploaderFor } = require('@lykmapipo/file');
 // const autoParse = require('auto-parse');
 const { uploadFor } = require('../Utils/uploader');
@@ -94,24 +95,36 @@ router.get(
   })
 );
 
-router.post(
-  PATH_RESET,
-  postFor({
-    post: (options, done) => {
-      const id = _.get(options, 'params.id');
-      const newPassword = _.get(options, 'password', 'sokasoko');
-      User.findById(id, (error, user) => {
-        if (error) {
-          return done(error, null);
-        }
+router.post(PATH_RESET, (request, response) => {
+  const id = request.params.id;  // Get user ID from URL
+  const { oldPassword, newPassword } = request.body;  // Get old and new password from the request body
 
-        user.changePassword(newPassword);
+  User.findById(id, async (error, user) => {
+    if (error) {
+      console.error('Error finding user:', error);
+      return response.status(500).json({ message: 'Error finding user' });
+    }
 
-        return done(null, user);
-      });
-    },
-  })
-);
+    if (!user) {
+      return response.status(404).json({ message: 'User not found' });
+    }
+
+    // Check if the old password matches
+    const isMatch = await bcrypt.compare(oldPassword, user.password);
+    if (!isMatch) {
+      return response.status(400).json({ message: 'Old password is incorrect' });
+    }
+
+    // Hash the new password
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update the password in the database
+    user.password = hashedNewPassword;
+    await user.save();
+
+    return response.status(204).json({ message: 'Password updated successfully' });
+  });
+});
 
 router.post(
   PATH_SUSPEND,
@@ -300,27 +313,36 @@ router.delete(
 
 router.post(PATH_LOGIN, (request, response) => {
   const identifier = _.get(request.body, 'identifier');
-  const password = _.get(request.body, 'password');
+  const password = _.get(request.body, 'password');  // Plain-text password from frontend
 
+  // Find the user by phone or account number
   User.findOne({
     $or: [{ phone: identifier }, { accountNumber: identifier }],
   }).exec((err, user) => {
     if (err) {
-      return response.error(err);
+      // Log the error for debugging
+      console.error('Error finding user:', err);
+      return response.status(500).json({ message: 'Server error' });
     }
 
     if (_.isNull(user)) {
-      return response.notFound();
+      return response.status(404).json({ message: 'User not found' });
     }
 
-    return user.comparePassword(password, (error, isMatch) => {
-      if (isMatch) {
-        return response.ok(user);
+    // Compare the provided password with the hashed password
+    bcrypt.compare(password, user.password, (error, isMatch) => {
+      if (error) {
+        console.error('Error comparing passwords:', error);
+        return response.status(500).json({ message: 'Error comparing passwords' });
       }
-      return response.error('Failed to Login');
+      if (isMatch) {
+        return response.status(200).json(user);
+      }
+      return response.status(400).json({ message: 'Incorrect username or password' });
     });
   });
 });
+
 
 router.post('/users/:id/upload-profile-image', async (req, res) => {
   const { id } = req.params;

@@ -24,6 +24,7 @@
     "async": "^3.2.1",
     "aws-sdk": "^2.1013.0",
     "axios": "^0.23.0",
+    "bcrypt": "^5.1.1",
     "bcryptjs": "^2.4.3",
     "btoa": "^1.2.1",
     "connect-mongo": "^5.1.0",
